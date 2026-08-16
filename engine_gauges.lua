@@ -779,24 +779,28 @@ if MASTER then
 	-- [TUNED v3] на низких оборотах (<45%) трение усилено x4 — стрелка быстрее падает на 0
 	-- На высоких оборотах трение прежнее, выбег с номинала-взлёта остаётся долгим
 	local function runout_friction(n2)
+		n2 = n2 or 0
 		if n2 >= 45 then return T.n2_c_f end
 		return T.n2_c_f * (1 + (45 - n2) / 45 * 3)  -- ×1 на 45% → ×4 на 0%
 	end
 	if flame1 > 0 or safe_get(Tdr.apd1, 0) > 0 then
-		T.n2run1 = rpm_1
+		T.n2run1 = rpm_1 or T.n2run1 or 0
 	else
+		T.n2run1 = T.n2run1 or 0
 		T.n2run1 = math.max(T.n2run1 + (-T.n2_c_aero*dens*math.pow(T.n2run1,2) + T.n2_c_q*T.q - runout_friction(T.n2run1)) / T.n2_M_rot * passed, 0)
 		rpm_1 = T.n2run1;  set(eng1_N2, T.n2run1)
 	end
 	if flame2 > 0 or safe_get(Tdr.apd2, 0) > 0 then
-		T.n2run2 = rpm_2
+		T.n2run2 = rpm_2 or T.n2run2 or 0
 	else
+		T.n2run2 = T.n2run2 or 0
 		T.n2run2 = math.max(T.n2run2 + (-T.n2_c_aero*dens*math.pow(T.n2run2,2) + T.n2_c_q*T.q - runout_friction(T.n2run2)) / T.n2_M_rot * passed, 0)
 		rpm_2 = T.n2run2;  set(eng2_N2, T.n2run2)
 	end
 	if flame3 > 0 or safe_get(Tdr.apd3, 0) > 0 then
-		T.n2run3 = rpm_3
+		T.n2run3 = rpm_3 or T.n2run3 or 0
 	else
+		T.n2run3 = T.n2run3 or 0
 		T.n2run3 = math.max(T.n2run3 + (-T.n2_c_aero*dens*math.pow(T.n2run3,2) + T.n2_c_q*T.q - runout_friction(T.n2run3)) / T.n2_M_rot * passed, 0)
 		rpm_3 = T.n2run3;  set(eng3_N2, T.n2run3)
 	end
