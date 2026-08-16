@@ -101,7 +101,7 @@ defineProperty("temp_SL", globalPropertyf("sim/weather/temperature_sealevel_c"))
 defineProperty("press_SL", globalPropertyf("sim/weather/barometer_sealevel_inhg"))
 
 defineProperty("flt_idle", globalPropertyf("tu154b2/custom/engines/flight_idle"))
---defineProperty("flt_idle_rpm", globalPropertyf("tu154b2/custom/engines/flight_idle_rpm"))
+defineProperty("flt_idle_rpm", globalPropertyf("tu154b2/custom/engines/flight_idle_rpm"))
 
 defineProperty("max_n2", globalPropertyf("tu154b2/engine/max_KVD"))
 defineProperty("nom_n2", globalPropertyf("tu154b2/engine/nom_KVD"))
@@ -141,12 +141,15 @@ defineProperty("eng3_ice", globalProperty("sim/flightmodel/failures/inlet_ice_pe
 defineProperty("rpm_low_1", globalPropertyf("tu154b2/custom/gauges/engine/rpm_low_1")) -- обороты турбины низкого давления №1
 defineProperty("rpm_low_2", globalPropertyf("tu154b2/custom/gauges/engine/rpm_low_2")) -- обороты турбины низкого давления №2
 defineProperty("rpm_low_3", globalPropertyf("tu154b2/custom/gauges/engine/rpm_low_3")) -- обороты турбины низкого давления №3
-R_1 =  globalProperty("sim/cockpit2/engine/indicators/thrust_dry_n[0]")
-R_2 =  globalProperty("sim/cockpit2/engine/indicators/thrust_dry_n[1]")
-R_3 =  globalProperty("sim/cockpit2/engine/indicators/thrust_dry_n[2]")
-R_SC_1 = globalPropertyf("tu154b2/custom/SC/thrust_1")
-R_SC_2 = globalPropertyf("tu154b2/custom/SC/thrust_2")
-R_SC_3 = globalPropertyf("tu154b2/custom/SC/thrust_3")
+-- FIX: these were bare global assignments (missing defineProperty wrapper), causing
+-- "can't load component" errors every frame when set() tried to resolve them -- confirmed
+-- firing continuously via Log.txt (19,290 occurrences). Wrapped properly below.
+defineProperty("R_1", globalProperty("sim/cockpit2/engine/indicators/thrust_dry_n[0]"))
+defineProperty("R_2", globalProperty("sim/cockpit2/engine/indicators/thrust_dry_n[1]"))
+defineProperty("R_3", globalProperty("sim/cockpit2/engine/indicators/thrust_dry_n[2]"))
+defineProperty("R_SC_1", globalPropertyf("tu154b2/custom/SC/thrust_1"))
+defineProperty("R_SC_2", globalPropertyf("tu154b2/custom/SC/thrust_2"))
+defineProperty("R_SC_3", globalPropertyf("tu154b2/custom/SC/thrust_3"))
 defineProperty("hascontrol_1", globalPropertyf("scp/api/hascontrol_1")) -- Have control. 0 = plugin not found, 1 = no control 2 = has control
 defineProperty("control_thro_other", globalPropertyf("tu154b2/custom/SC/control_thro_other")) -- другой человек упраляет РУД-ами
 
@@ -446,7 +449,16 @@ local reverse_table = {{ -10000, 0.04 }, -- BUGS workaround
 
 	--min_idle=math.max(55.5,-1.6402629234e-01*math.pow(alt_baro/1000,2) + 4.6498254605e+00*alt_baro/1000 + 4.4995506536e+01) --- This is the old model
 	local mid_idle_isa_corr=0.12*d_isa
-	min_idle=math.max(53.5,-2.2412587413e-01*math.pow(alt_baro/1000,2) + 5.3544289044e+00*alt_baro/1000 + 4.4647086247e+01+mid_idle_isa_corr)
+	-- SUPERSEDES all prior idle-floor edits in this file (58%/65%, then 28%/38%,
+	-- both based on a disputed visual gauge reading). This version is sourced
+	-- directly from the real Tu-154M flight manual (РЛЭ), Table 8.1.1 (ground,
+	-- ISA): idle N2 (КВД) = 59.5-61.5%, midpoint 60.5%; and Table 8.1.2 (H=11km,
+	-- M=0.8): idle N2 = 78%. Linear fit between these two real points (no
+	-- quadratic term -- the original curvature was fit to a different, disputed
+	-- range and risks bad extrapolation over this much larger altitude span).
+	-- N1 (КНД) at ground idle is documented as 30% -- this file only computes
+	-- N2 directly; N1 is derived elsewhere via n1_from_n2(), unchanged here.
+	min_idle=math.max(60.5,4.84909075392e-01*alt_baro/1000 + 6.05000000000e+01+mid_idle_isa_corr)
 	local kpp_idle_corr=interpolate(kpp_idle_corr_table,73-min_idle)
 	--math.max(55.5,1.945*alt_baro/1000+53.61)+get(db1)
 	-- max N2
@@ -809,13 +821,15 @@ local reverse_table = {{ -10000, 0.04 }, -- BUGS workaround
 		local ice3=1-get(eng3_ice)*0.4
 		set(idle_rat,idle_rt)
 		set(idle_rat2,idle_rt)
-		-- Thrust baseline updated to match donor's Д-30КУ-154 datasheet value:
-		-- takeoff thrust 10800 kgf = 105948 N, +2% for XP simulation losses = 108066.96 N
-		-- (previous baseline of 102779 was unsourced; B's own alt/ISA/bleed/ice/reverse
-		--  correction model below is kept as-is, only the flat baseline constant changes)
-		set(acf_tmax_1, 105948*1.02*alt_corr*kpp1_corr*(climb_corr+eng_1_bleed_loss)*isa_corr*low_corr_1*push*rev_L_corr*ice1)
-		set(acf_tmax_2, 105948*1.02*alt_corr*kpp2_corr*(climb_corr+eng_2_bleed_loss)*isa_corr*low_corr_2*push*ice2)
-		set(acf_tmax_3, 105948*1.02*alt_corr*kpp3_corr*(climb_corr+eng_3_bleed_loss)*isa_corr*low_corr_3*push*rev_R_corr*ice3)
+		-- Thrust baseline: real engine rating 11,000 kgf x 9.80665 = 107,873.15 N,
+		-- +2% for XP12 simulation losses (same methodology as before) = 110,030.61 N
+		-- (B's own real rating, 10,500 kgf = 102,969.83 N, matches B's original unmodified
+		-- 102,779 N baseline almost exactly -- confirms B's original number was already correct)
+		-- B's own alt/ISA/bleed/ice/reverse correction model below is kept as-is, only the
+		-- flat baseline constant changes.
+		set(acf_tmax_1, 110030.61*alt_corr*kpp1_corr*(climb_corr+eng_1_bleed_loss)*isa_corr*low_corr_1*push*rev_L_corr*ice1)
+		set(acf_tmax_2, 110030.61*alt_corr*kpp2_corr*(climb_corr+eng_2_bleed_loss)*isa_corr*low_corr_2*push*ice2)
+		set(acf_tmax_3, 110030.61*alt_corr*kpp3_corr*(climb_corr+eng_3_bleed_loss)*isa_corr*low_corr_3*push*rev_R_corr*ice3)
 		set(isa_temp_d,d_isa)
 		set(R_SC_1,get(R_1))
 		set(R_SC_2,get(R_2))
