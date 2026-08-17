@@ -1,0 +1,15 @@
+##########################################################################
+#                                                                        #
+#   Materials NG Plugin v1.1 by ddenn for X-Plane 10.50+                 #
+#                                                                        #
+#   Release version.                                                     #
+#   Unauthorized commercial use is prohibited.                           #
+#   Unauthorized distribution prohibited.                                #
+#                                                                        #
+#   Suggestions and bug reports please send to den.dndesign@gmail.com    #
+#                                                                        #
+#   Build date: Oct 10 2016                                              #
+#   Build time: 10:40:49               Copyright © 2016 Denis Krupin     #
+#                                                                        #
+##########################################################################
+
