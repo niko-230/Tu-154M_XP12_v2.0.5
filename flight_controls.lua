@@ -60,6 +60,12 @@ defineProperty("spd_brk_inn_R", globalProperty("sim/flightmodel2/wing/speedbrake
 
 defineProperty("spd_brk_inn_anim_L", globalPropertyf("tu154b2/custom/anim/spd_brk_inn_left")) -- inner speedbrake left animation Degrees
 defineProperty("spd_brk_inn_anim_R", globalPropertyf("tu154b2/custom/anim/spd_brk_inn_right")) -- inner speedbrake right animation Degrees
+-- wings.obj (M's model, actually in use) reads this dataref instead, under
+-- M's own namespace -- confirmed via direct check of wings.obj's ANIM_rotate
+-- commands. This is the actual visual binding; the one above may be vestigial
+-- now but is left alone since nothing else references it either way.
+defineProperty("spd_brk_inn_anim_L_M", globalPropertyf("sim/custom/anim/spd_brk_inn_left"))
+defineProperty("spd_brk_inn_anim_R_M", globalPropertyf("sim/custom/anim/spd_brk_inn_right"))
 
 
 defineProperty("spd_brk_mid_L", globalPropertyf("sim/flightmodel/controls/wing2l_spo2def")) -- middle speedbrake left Degrees
@@ -134,7 +140,7 @@ defineProperty("revers_L", globalPropertyf("tu154b2/custom/controlls/revers_L"))
 defineProperty("revers_R", globalPropertyf("tu154b2/custom/controlls/revers_R")) -- рычаг реверса прав
 
 defineProperty("ias_L", globalPropertyf("sim/flightmodel/position/indicated_airspeed")) -- indicated airspeed in KTS
---defineProperty("ias_R", globalPropertyf("sim/cockpit2/gauges/indicators/airspeed_kts_copilot"))
+defineProperty("ias_R", globalPropertyf("sim/cockpit2/gauges/indicators/airspeed_kts_copilot"))
 -- get(ias) * 1.852 -- km/hr
 
 -- currents
@@ -344,159 +350,63 @@ end
 
 	---------------------------------
 	-- spoilers logic --
+	-- Real behavior, confirmed via direct in-sim observation (not present in
+	-- M donor's own flight_controls.lua as such -- checked exhaustively, M's
+	-- actual code only has a single simpler combined trigger):
+	--   outer: deploys on ground contact ALONE, regardless of throttle
+	--          position. Once forced open it just holds wherever the lever
+	--          is (nothing retracts it), so it naturally stays deployed
+	--          through the whole rollout including after briefly going
+	--          airborne again (a bounce).
+	--   inner: tracks reverser state directly (gears + reverser open).
+	--          Deploys once reverse is engaged (which in practice follows
+	--          retarding to idle), stays deployed while reverse is held,
+	--          retracts the instant reverse is stowed (even with throttle
+	--          still at idle), and retracts immediately if airborne
+	--          regardless of reverser state.
 	local gears = get(deflection_mtr_2) > 0.01 and get(deflection_mtr_3) > 0.01
 	local ruds_iddle = get(anim_rud1) < 0.1 and get(anim_rud2) < 0.1 and get(anim_rud3) < 0.1
+	local revers = get(revers_L) > 0.1 and get(revers_R) > 0.1
 
-	-- ported from M (donor comment: "spoilers logic Tu154M Felis to jeni original"):
-	-- genuine hands-off ground-spoiler auto-deploy. B's own auto_deploy state
-	-- machine below only EXTENDS spoilers once the lever is already raised
-	-- (speedbrake_ratio > 0.95) -- that's a confirm/latch, not real automatic
-	-- deployment. M's version actually moves the lever itself on touchdown:
-	-- gear compressed + throttles idle + above 54kt (real landing roll), or
-	-- reverse thrust engaged. All datarefs it needs already exist above.
-	local IAS_lim = get(ias_L) > 54
-	local m_auto_deploy = power_27_L and gears and ((ruds_iddle and IAS_lim) or (get(revers_L) > 0.1 and get(revers_R) > 0.1))
-	if m_auto_deploy and MASTER then set(speedbrake_ratio, 1) end
-    
-    if gears and get(speedbrake_ratio) > 0.95 then
-        if spb_inn < 1 then
-            spb_inn=spb_inn + 0.7*passed
-        end
-    else
-        if spb_inn > 0 then
-            spb_inn=spb_inn - 0.7*passed
-        end
-    end
-    
-    set(spb_inn_anim,spb_inn)
-       
-	
-    if get(kontur_on) > 0 then
-        
-        local flaps_to = (get(flap_inn_L)+get(flap_inn_R))/2 < 31
-        local revers = get(revers_L) > 0.1 and get(revers_R) > 0.1
-        if power_27_L and get(gs_press_1) > 50 and gears and ((get(speedbrake_ratio) > 0.95) or revers) and auto_deploy == 0 and auto_deploy_delay == 0 then
-            auto_deploy = 1
-        end
-        if auto_deploy == 1 then
-            if flaps_to then
-                if (get(speedbrake_ratio) < 0.05 or not ruds_iddle) and not revers then
-                    auto_deploy = 0
-                end
-            else
-                if (get(revers_L) > 0.6 and get(revers_R) > 0.6) or not ruds_iddle then
-                    auto_deploy = 0
-                    auto_deploy_delay = 1
-                end
-            end
-        end  
-        if auto_deploy_delay == 1 then
-            if not revers then
-                auto_deploy_delay = 0
-            end
-        end
-    else
-        local revers = get(revers_L) > 0.44 and get(revers_R) > 0.66
-        if power_27_L and get(gs_press_1) > 50 and gears and ((get(speedbrake_ratio) > 0.95) or revers) and auto_deploy < 1 then
-			auto_deploy = 1
-			-- if auto_deploy>1 then
-				-- auto_deploy=1
-			-- end
-        end
-        if auto_deploy == 1 and get(speedbrake_ratio) < 0.05 and (get(revers_L) < 0.05 and get(revers_R) < 0.05) then
-            auto_deploy = 0
-        end
-    end
-	
-	
+	local auto_deploy = power_27_L and gears
+
 	---------------------------------
 	-- middle spoilers --
 
-	
+	if auto_deploy and MASTER then set(speedbrake_ratio, 1) end
+
 	local spd_brk_cmd = get(speedbrake_ratio) --  add automatic logic here, controlling the lever itself
-	
+
 	local spd_brk_L = spd_brk_cmd * 45 * bool2int(power_27_L)
 	local spd_brk_R = spd_brk_cmd * 45 * bool2int(power_27_L)
-	if HS1 > 0.15 then
-		if (spd_brk_L - left_mid_sp_act)<=0 then
-			if math.abs(spd_brk_L - left_mid_sp_act)>1 then
-				left_mid_sp_act = left_mid_sp_act - 31.5 * HS1 * passed 
-			else
-				left_mid_sp_act = left_mid_sp_act +(spd_brk_L - left_mid_sp_act) * HS1 * passed * 31.5
-			end
-		elseif (spd_brk_L - left_mid_sp_act)>0 then
-			if math.abs(spd_brk_L - left_mid_sp_act)>1 then
-				left_mid_sp_act = left_mid_sp_act + 31.5* HS1 * passed*math.max(1-get(ias_L)/500*math.min(left_mid_sp_act/20,1),0.7)*1.5
-			else
-				left_mid_sp_act = left_mid_sp_act + (spd_brk_L - left_mid_sp_act) * HS1 * passed * 31.5*math.max(1-get(ias_L)/500*math.min(left_mid_sp_act/20,1),0.7)*1.5
-			end
-		end
-		if (spd_brk_R - right_mid_sp_act)<=0 then
-			if math.abs(spd_brk_R - right_mid_sp_act)>1 then
-				right_mid_sp_act = right_mid_sp_act - 31.5 * HS1 * passed
-			else
-				right_mid_sp_act = right_mid_sp_act +(spd_brk_R - right_mid_sp_act) * HS1 * passed * 31.5
-			end
-		elseif (spd_brk_R - right_mid_sp_act)>0 then
-			if math.abs(spd_brk_R - right_mid_sp_act)>1 then
-				right_mid_sp_act = right_mid_sp_act + 31.5 * HS1 * passed*math.max(1-get(ias_L)/500*math.min(right_mid_sp_act/20,1),0.7)*1.5
-			else
-				right_mid_sp_act = right_mid_sp_act + (spd_brk_R - right_mid_sp_act) * HS1 * passed * 31.5*math.max(1-get(ias_L)/500*math.min(right_mid_sp_act/20,1),0.7)*1.5
-			end
-		end
+	if HS1 > 0.01 then
+		left_mid_sp_act = left_mid_sp_act + (spd_brk_L - left_mid_sp_act) * HS1 * passed * 15
+		right_mid_sp_act = right_mid_sp_act + (spd_brk_R - right_mid_sp_act) * HS1 * passed * 15
 	end
 
 if MASTER then	
 	set(spd_brk_mid_L, left_mid_sp_act * (1 - get(fail_spoil_mid_left)))
 	set(spd_brk_mid_R, right_mid_sp_act * (1 - get(fail_spoil_mid_right)))
 end	
-	
+
 	---------------------------------
 	-- inner spoilers --
-	-- ported from M: inner spoilers now track m_auto_deploy directly (recomputed
-	-- live every frame) instead of B's old latched auto_deploy state machine --
-	-- this makes them open/close together with reverse thrust opening/closing,
-	-- same as M's real behavior. Middle/outer spoilers already follow the lever
-	-- (speedbrake_ratio) above, which m_auto_deploy also drives on touchdown.
-	local spoilers_cmd = bool2int(m_auto_deploy) -- add automatic logic here
-	
+	-- tracks reverser state directly -- deploys with reverse, retracts the
+	-- instant reverse closes, regardless of throttle position at that point.
+	local inner_deploy = gears and revers
+	local spoilers_cmd = bool2int(inner_deploy) -- add automatic logic here
+
 	local spoil_L = spoilers_cmd * 50 * bool2int(power_27_L)
 	local spoil_R = spoilers_cmd * 50 * bool2int(power_27_L)
-	--if HS1 > 0.1 then
-	-- if spoilers_cmd == 1 then 
-		-- left_inn_sp_act = left_inn_sp_act + (spoil_L - left_inn_sp_act) * HS1 * passed * 1
-		-- right_inn_sp_act = right_inn_sp_act + (spoil_R - right_inn_sp_act) * HS1 * passed * 1
-	-- else
-		-- left_inn_sp_act = left_inn_sp_act + (spoil_L - left_inn_sp_act) * HS1 * passed * 0.7
-		-- right_inn_sp_act = right_inn_sp_act + (spoil_R - right_inn_sp_act) * HS1 * passed * 0.7
-	-- end
-	if (spoil_L - left_inn_sp_act)<=0 then
-		if math.abs(spoil_L - left_inn_sp_act)>1 then
-			left_inn_sp_act = left_inn_sp_act - 30 * HS1 * passed 
+	if HS1 > 0.01 then
+		if spoilers_cmd == 1 then 
+			left_inn_sp_act = left_inn_sp_act + (spoil_L - left_inn_sp_act) * HS1 * passed * 10
+			right_inn_sp_act = right_inn_sp_act + (spoil_R - right_inn_sp_act) * HS1 * passed * 10
 		else
-			left_inn_sp_act = left_inn_sp_act +(spoil_L - left_inn_sp_act) * HS1 * passed * 30
-		end
-	elseif (spoil_L - left_inn_sp_act)>0 then
-		if math.abs(spoil_L - left_inn_sp_act)>1 then
-			left_inn_sp_act = left_inn_sp_act + 30 * HS1 * passed*math.max(1-get(ias_L)/500*math.min(left_inn_sp_act/20,1),0.1)*1.5
-		else
-			left_inn_sp_act = left_inn_sp_act + (spoil_L - left_inn_sp_act) * HS1 * passed * 30*math.max(1-get(ias_L)/500*math.min(left_inn_sp_act/20,1),0.1)*1.5
+			left_inn_sp_act = left_inn_sp_act + (spoil_L - left_inn_sp_act) * HS1 * passed * 1
+			right_inn_sp_act = right_inn_sp_act + (spoil_R - right_inn_sp_act) * HS1 * passed * 1
 		end
 	end
-	if (spoil_R - right_inn_sp_act)<=0 then
-		if math.abs(spoil_R - right_inn_sp_act)>1 then
-			right_inn_sp_act = right_inn_sp_act - 30* HS1 * passed
-		else
-			right_inn_sp_act = right_inn_sp_act +(spoil_R - right_inn_sp_act) * HS1 * passed * 30
-		end
-	elseif (spoil_R - right_inn_sp_act)>0 then
-		if math.abs(spoil_R - right_inn_sp_act)>1 then
-			right_inn_sp_act = right_inn_sp_act + 30 * HS1 * passed*math.max(1-get(ias_L)/500*math.max(right_inn_sp_act/20,1),0.1)*1.5
-		else
-			right_inn_sp_act = right_inn_sp_act + (spoil_R - right_inn_sp_act) * HS1 * passed * 30*math.max(1-get(ias_L)/500*math.min(right_inn_sp_act/20,1),0.1)*1.5
-		end
-	end
-	--end
 
 if MASTER then	
 	set(spd_brk_inn_L, left_inn_sp_act * (1 - get(fail_spoil_inn_left)))
@@ -740,6 +650,8 @@ end
 		-- set animations
 		set(spd_brk_inn_anim_L, left_inn_sp_act * (1 - get(fail_spoil_inn_left)))
 		set(spd_brk_inn_anim_R, right_inn_sp_act * (1 - get(fail_spoil_inn_right)))
+		set(spd_brk_inn_anim_L_M, left_inn_sp_act * (1 - get(fail_spoil_inn_left)))
+		set(spd_brk_inn_anim_R_M, right_inn_sp_act * (1 - get(fail_spoil_inn_right)))
 		
 		set(yoke_pitch, cockpit_yoke_pitch)
 		set(yoke_roll, cockpit_yoke_roll)
